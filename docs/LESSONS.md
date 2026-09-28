@@ -74,3 +74,24 @@ Astra's 4 Terminal-Bench tasks scored 0/60 in every arm, so the gate can't disti
 - On macOS seatbelt, allow `/dev/ptmx` (the persistent bash uses a PTY) and don't deny file *metadata* reads, or `realpath` fails.
 - The web tool needs a DeepSeek key. Disable `tool-web`, `web`, `web-search-deepseek` and `web-fetch-http` for offline tasks in **all** arms.
 - Plugins can be plain ESM files loaded by path in a patch `insert` row; no packaging is needed for evaluation.
+
+## Lessons from attempt 3 setup (2026-09-28, DeepSeek V4.1-flash)
+
+### 10. The real model is cheap enough; wall-clock is the constraint
+- `deepseek/deepseek-v4.1-flash` on OpenRouter via DeepInfra fp8 ($0.14 in / $0.42 out, cached input $0.0042 per 1M) with DSH's default reasoning (high). Prompt caching hits on repeated prefixes; a cached call costs about 10× less.
+- DeepSeek's own endpoint may be excluded by the account's "no training on paid prompts" privacy setting. DeepInfra is also cheaper on output.
+- Measured: about $0.002 per run on small bank tasks and about $0.01 per Terminal-Bench 2.0 task. €50 buys thousands of runs; the Mac's CPU (emulated amd64 containers) is the bottleneck.
+
+### 11. Old toy banks are saturated on V4
+- The 74-task Opus bank: V4-flash passes 65 of 73 finished runs (89%). The failures cluster in **multi-session memory**, where DSH forgets rules and preferences stated in an earlier session. That is a scale-general, harness-addressable gap.
+
+### 12. Frontier agents snoop: lay out runs like a real machine
+- V4-flash reads files outside its workspace to recover context: the runner's `../worker.json` (which held earlier sessions' replies) and DSH's own session store. Never put runner bookkeeping where the agent can read it.
+- Mirror a real install: `$HOME/.dsh` for DSH_HOME and `$HOME/projects/<task>` for the workspace. The agent may still read `~/.dsh`, as it could on a real machine. Log a "snooped ~/.dsh" metric per run, and note that a lab `~/.dsh` with a single project is easier to snoop than a real one.
+
+### 13. DSH 0.1.7 plumbing notes
+- The Python SDK (0.1.5rc1 on PyPI) can drive the current npm CLI (`@deepseek-ai/dsh@0.1.7-rc.2`) via `dsh_bin`. Session logs are now `session.v4.jsonl(.zstd)`.
+- `sdk-minimal`'s persistent PTY shell executes a setuid binary, which the macOS seatbelt sandbox forbids; drop that arm on macOS.
+- The `sdk` and `headless` profiles differ by only 4 plugins, so `dsh --profile headless --json` inside Terminal-Bench containers (via a Harbor custom agent with the Linux Node + DSH closure mounted read-only) matches the local runner.
+- Terminal-Bench 2.0 images are amd64. On an 8 GB Docker Desktop, run at most 3 concurrent tasks and exclude tasks that need more than 4 GB or nested virtualization, or the Docker daemon dies.
+
