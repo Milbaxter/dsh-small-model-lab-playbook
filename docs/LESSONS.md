@@ -1,5 +1,7 @@
 # Lessons from the 2026-09-28 attempts
 
+> Both attempts used Qwen3-8B. Lesson 0 explains why the next attempt targets DeepSeek V4 instead. The infrastructure lessons (1, 7, 8, 9) still apply; the task-level findings mostly don't carry over.
+
 Two agents ran the same plan independently: **Opus** (Claude) and **Astra** (Codex). Both reached P2 baselines, and neither ran an improvement iteration before stopping.
 
 ## Outcome snapshot
@@ -16,6 +18,12 @@ Two agents ran the same plan independently: **Opus** (Claude) and **Astra** (Cod
 | Spend | $4.63 | about $9.5+ |
 
 ## Lessons
+
+### 0. Measure on the model you want to improve
+- The goal is plugins that help a real DSH user, whose model is `deepseek-v4-flash` (DSH's default) or `deepseek-v4-pro`. Qwen3-8B's failures (stopping early, 0% memory, collapse at 32k) are mostly capability limits of an 8B model, not harness gaps that a strong model also hits. Compensating scaffolding for a weak model often costs a strong model extra calls for nothing.
+- The small model wasn't even cheaper: on OpenRouter, V4-flash (Alibaba, fp8) costs $0.134/$0.268 per 1M input/output tokens, with $0.027 for cached input, versus Qwen3-8B's $0.117/$0.455.
+- A forced 32k window and toy tasks gave a ~5% baseline (Opus bank), which leaves no statistical power and measures the model, not the harness.
+- **Do this instead:** calibrate realistic tasks on V4-flash, pick candidates from V4-flash failure traces, and require the champion to hold up on V4-pro. Use a small model only as an optional early-rejection screen.
 
 ### 1. Infrastructure: settle it first, in under an hour
 - **UpCloud:** the account quota was full (6 cores, 12 GB RAM and 2 IPv4 addresses all used). A new IPv6-only box was unreachable from a Mac without IPv6. **Check quotas and reachability before planning around a server.** Running locally on the Mac works fine: the model is remote, and the load is about 14 parallel DSH processes.
@@ -61,7 +69,7 @@ Astra's 4 Terminal-Bench tasks scored 0/60 in every arm, so the gate can't disti
 - **Freezing:** held-out and transfer frozen by commit hash before the loop, with only hashes published.
 
 ### 9. DSH gotchas (release 0.1.5rc1)
-- `compaction-basic` defaults to `headroomTokens: 65536`. With a 32k context window the pressure threshold is negative, so pressure compaction throws every step and only overflow recovery works. That is a real small-model harness weakness, and a legitimate loop candidate (see NEXT_EXPERIMENTS).
+- `compaction-basic` defaults to `headroomTokens: 65536`. With a 32k context window the pressure threshold is negative, so pressure compaction throws every step and only overflow recovery works. That is a real DSH bug for small-window models: report it upstream and fix it in the baseline config, rather than counting it as a loop gain.
 - `sdk` profile defaults need `DSH_PERMISSION_MODE=danger-full-access` headless; approvals can't be answered. Use an outer sandbox instead.
 - On macOS seatbelt, allow `/dev/ptmx` (the persistent bash uses a PTY) and don't deny file *metadata* reads, or `realpath` fails.
 - The web tool needs a DeepSeek key. Disable `tool-web`, `web`, `web-search-deepseek` and `web-fetch-http` for offline tasks in **all** arms.
